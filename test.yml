@@ -1,0 +1,49 @@
+- name: check if security updates are needed
+  hosts: elk
+  tasks:
+    - name: check yum security updates
+      shell: "yum updateinfo list all security"
+      changed_when: false
+      register: security_update
+
+    - debug: msg="Security update required"
+      when: security_update.stdout != "0"
+
+    - name: list some packages
+      yum: list=available
+
+- hosts: elk
+  remote_user: ansadm
+  become: yes
+  become_method: sudo
+  tasks:
+
+    - name: Move repos from backup to yum.repos.d
+      shell: mv -f /backup/* /etc/yum.repos.d/
+      register: shell_result
+      failed_when: '"No such file or directory" in shell_result.stderr_lines'
+
+    - name: Remove redhat.repo
+      shell: rm -f /etc/yum.repos.d/redhat.repo
+      register: shell_result
+      failed_when: '"No such file or directory" in shell_result.stderr_lines'
+
+    - name: add line to yum.conf
+      lineinfile:
+        dest: /etc/yum.conf
+        line: exclude=kernel* redhat-release*
+        state: present
+        create: yes
+
+    - name: yum clean
+      shell: yum make-cache
+      register: shell_result
+      failed_when: '"There are no enabled repos" in shell_result.stderr_lines'
+
+    - name: install all security patches
+      yum:
+       name: '*'
+       state: latest
+       security: yes
+       bugfix: yes
+       skip_broken: yes
